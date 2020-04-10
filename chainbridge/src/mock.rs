@@ -2,21 +2,17 @@
 
 use super::*;
 
-use frame_support::{
-    impl_outer_dispatch, impl_outer_event, impl_outer_origin, ord_parameter_types, parameter_types,
-    weights::Weight,
-};
-use frame_system::EnsureSignedBy;
+use frame_support::{ord_parameter_types, parameter_types, weights::Weight};
 use frame_system::{self as system};
 use sp_core::H256;
 use sp_runtime::{
     testing::Header,
-    traits::{BlakeTwo256, Block as BlockT, IdentityLookup},
+    traits::{AccountIdConversion, BlakeTwo256, Block as BlockT, IdentityLookup},
     BuildStorage, Perbill,
 };
 
 use crate::{self as bridge, Trait};
-use pallet_balances as balances;
+pub use pallet_balances as balances;
 
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
@@ -63,11 +59,16 @@ impl pallet_balances::Trait for Test {
     type AccountStore = System;
 }
 
+parameter_types! {
+    pub const TestChainId: u8 = 5;
+}
+
 impl Trait for Test {
     type Event = Event;
     type Currency = Balances;
     // type ValidatorOrigin = EnsureSignedBy<One, u64>;
     type Proposal = Call;
+    type ChainId = TestChainId;
 }
 
 pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
@@ -81,29 +82,40 @@ frame_support::construct_runtime!(
     {
         System: system::{Module, Call, Event<T>},
         Balances: balances::{Module, Call, Storage, Config<T>, Event<T>},
-        Bridge: bridge::{Module, Call, Event<T>, Config<T>}
+        Bridge: bridge::{Module, Call, Storage, Event<T>},
     }
 );
 
-pub const ENDOWED_ID: u64 = 0x1;
-pub const VALIDATOR_A: u64 = 0x2;
-pub const VALIDATOR_B: u64 = 0x3;
-pub const VALIDATOR_C: u64 = 0x4;
-pub const USER: u64 = 0x4;
-pub const ENDOWED_BALANCE: u64 = 100;
+// pub const BRIDGE_ID: u64 =
+pub const RELAYER_A: u64 = 0x2;
+pub const RELAYER_B: u64 = 0x3;
+pub const RELAYER_C: u64 = 0x4;
+pub const ENDOWED_BALANCE: u64 = 100_000_000;
 
-pub fn new_test_ext(threshold: u32) -> sp_io::TestExternalities {
+pub fn new_test_ext() -> sp_io::TestExternalities {
+    let bridge_id = ModuleId(*b"cb/bridg").into_account();
     GenesisConfig {
-        bridge: Some(bridge::GenesisConfig {
-            endowed: ENDOWED_ID,
-            validators: vec![VALIDATOR_A, VALIDATOR_B, VALIDATOR_C],
-            validator_threshold: threshold,
-        }),
         balances: Some(balances::GenesisConfig {
-            balances: vec![(ENDOWED_ID, ENDOWED_BALANCE)],
+            balances: vec![(bridge_id, ENDOWED_BALANCE)],
         }),
     }
     .build_storage()
     .unwrap()
     .into()
+}
+
+// Checks events against the latest. A contiguous set of events must be provided. They must
+// include the most recent event, but do not have to include every past event.
+pub fn assert_events(mut expected: Vec<Event>) {
+    let mut actual: Vec<Event> = system::Module::<Test>::events()
+        .iter()
+        .map(|e| e.event.clone())
+        .collect();
+
+    expected.reverse();
+
+    for evt in expected {
+        let next = actual.pop().expect("event expected");
+        assert_eq!(next, evt.into(), "Events don't match");
+    }
 }
